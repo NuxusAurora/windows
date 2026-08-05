@@ -1,0 +1,10 @@
+# 运行时生成内容，不入库
+runtime/.venv/
+runtime/logs/
+runtime/configs/
+runtime/pids.json
+runtime/serial.json
+runtime/python_path.txt
+runtime/patches_backup/
+__pycache__/
+win_tools/__pycache__/
