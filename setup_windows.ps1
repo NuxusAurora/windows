@@ -1,4 +1,4 @@
-param([switch]$SkipOptional)
+﻿param([switch]$SkipOptional)
 $ErrorActionPreference = "Stop"
 
 $Root = $PSScriptRoot
@@ -13,6 +13,15 @@ function Resolve-Sibling([string[]]$Names) {
         if (Test-Path $candidate) { return $candidate }
     }
     return Join-Path (Split-Path $Root -Parent) $Names[0]
+}
+
+function Find-ProjectSrc([string]$ProjectRoot) {
+    # 兼容“仓库根里又套了一层同名目录”的布局，如 droidmotion/droidmotion/src
+    $direct = Join-Path $ProjectRoot "src"
+    if (Test-Path $direct) { return $direct }
+    $nested = Join-Path $ProjectRoot (Join-Path (Split-Path $ProjectRoot -Leaf) "src")
+    if (Test-Path $nested) { return $nested }
+    return $null
 }
 
 $ExpDeb = Resolve-Sibling @("exp", "exp_deb")
@@ -39,13 +48,15 @@ if (Test-Path (Join-Path $ExpDeb "servo_tuning\head-sdk-face\head-server\src\hea
     Write-Host "  ✗ 找不到 head_grpc_server.py，舵机 gRPC 无法启动" -ForegroundColor Red
     exit 1
 }
-if (Test-Path (Join-Path $Motion "src")) {
-    Write-Host "  ✓ motion=$Motion（自然状态运动源）"
+$motionSrc = Find-ProjectSrc $Motion
+if ($motionSrc) {
+    Write-Host "  ✓ motion=$Motion（自然状态运动源: $motionSrc）"
 } else {
     Write-Host "  ! 未找到 motion 项目，自然状态将被禁用（其余功能不受影响）" -ForegroundColor Yellow
 }
-if (Test-Path (Join-Path $Core "src")) {
-    Write-Host "  ✓ core=$Core（人脸/注视跟踪）"
+$coreSrc = Find-ProjectSrc $Core
+if ($coreSrc) {
+    Write-Host "  ✓ core=$Core（人脸/注视跟踪: $coreSrc）"
 } else {
     Write-Host "  ! 未找到 core 项目，人脸/注视跟踪将被禁用（其余功能不受影响）" -ForegroundColor Yellow
 }
@@ -170,6 +181,17 @@ if (-not $SkipOptional) {
         Write-Host "可选依赖安装失败（可忽略），继续..." -ForegroundColor Yellow
     }
 }
+
+# protobuf 锁定为 4.25.9：
+#   - mediapipe==0.10.21 要求 protobuf<5（protobuf 5.x 下 mediapipe 导入会失败）；
+#   - head-sdk / rena2-sdk-api / grpcio-tools 的依赖声明要求 protobuf 5.26+，
+#     与 mediapipe 的要求互斥，因此 pip 安装时**必然**会打印
+#     “dependency conflicts / protobuf ... incompatible” 之类的警告。
+#   - 这是正常现象，不影响运行：实测 head-sdk 的 pb2 导入、序列化、gRPC stub
+#     在 protobuf 4.25.9 下均正常；grpcio-tools 仅为代码生成工具，运行时不使用。
+& $envPy -m pip install "protobuf==4.25.9" 2>&1 | Out-Null
+Write-Host "（提示：如安装过程中出现 protobuf 相关依赖冲突警告，属正常现象，"
+Write-Host "  mediapipe 与 head-sdk 对 protobuf 版本要求互斥，运行已验证正常，可忽略。）" -ForegroundColor DarkGray
 
 # 5) 验证导入
 Write-Step "验证依赖导入"

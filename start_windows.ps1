@@ -1,4 +1,4 @@
-# start_windows.ps1 — Windows 一键启动 exp 调试平台
+﻿# start_windows.ps1 — Windows 一键启动 exp 调试平台
 #
 # 布局要求：本包（windows/）与 core、motion、exp 同级（旧布局回退
 # droidcore-temp / droidmotion / exp_deb）。本包只读这三个项目，
@@ -31,6 +31,15 @@ function Resolve-Sibling([string[]]$Names) {
         if (Test-Path $candidate) { return $candidate }
     }
     return Join-Path (Split-Path $Root -Parent) $Names[0]
+}
+
+function Find-ProjectSrc([string]$ProjectRoot) {
+    # 兼容“仓库根里又套了一层同名目录”的布局，如 droidmotion/droidmotion/src
+    $direct = Join-Path $ProjectRoot "src"
+    if (Test-Path $direct) { return $direct }
+    $nested = Join-Path $ProjectRoot (Join-Path (Split-Path $ProjectRoot -Leaf) "src")
+    if (Test-Path $nested) { return $nested }
+    return $null
 }
 
 # 兄弟项目目录：新布局 core/motion/exp，旧布局回退
@@ -157,8 +166,8 @@ $servoWorkDir = Join-Path $ExpDeb "servo_tuning"
 $envBackupPath = $env:PYTHONPATH
 $pythonPathParts = @()
 foreach ($proj in @($Motion, $Core)) {
-    $projSrc = Join-Path $proj "src"
-    if (Test-Path $projSrc) { $pythonPathParts += $projSrc }
+    $projSrc = Find-ProjectSrc $proj
+    if ($projSrc) { $pythonPathParts += $projSrc }
 }
 if ($pythonPathParts.Count -gt 0) {
     if ($envBackupPath) {
@@ -173,16 +182,9 @@ $servoId = Start-ExpService "servo_server" $servoPy $servoWorkDir @("`"$servoPy`
 $env:SOUND_TRACKING_PORT = $envBackupSound
 $env:PYTHONPATH = $envBackupPath
 
-# gRPC 硬件服务：直接用转换过 COM 口的配置启动 head_grpc_server.py
-$grpcSrc = Join-Path $ExpDeb "servo_tuning\head-sdk-face\head-server\src"
-$grpcPy = Join-Path $grpcSrc "head_grpc_server.py"
-
-$grpcId = $null
-if (-not (Test-PortOpen 2543)) {
-    $grpcId = Start-ExpService "head_grpc_server" $grpcPy $grpcSrc @("`"$grpcPy`"", "--config", "`"$headConfig`"")
-} else {
-    Write-Host "端口 2543 已有 gRPC 服务在运行，跳过启动" -ForegroundColor Yellow
-}
+# gRPC 硬件服务（2543）不在本脚本启动：没有连接头时启动会失败。
+# 由网页端（调试器选择机器人头 → /api/select_head）按需启动，
+# launchers 已提供 Windows 下的 gRPC 启停适配。
 
 # 6) 等待端口就绪
 function Wait-Port([int]$Port, [int]$TimeoutSec = 40) {
@@ -196,16 +198,12 @@ function Wait-Port([int]$Port, [int]$TimeoutSec = 40) {
 
 $okSave = Wait-Port 9002
 $okServo = Wait-Port 9001
-$okGrpc = $true
-if ($grpcId) { $okGrpc = Wait-Port 2543 }
 
 if ($okSave)  { Write-Host "OK  save_server     :9002" -ForegroundColor Green } else { Write-Host "FAIL save_server     :9002（见 $Logs\save_server.err.log）" -ForegroundColor Red }
 if ($okServo) { Write-Host "OK  servo_server    :9001" -ForegroundColor Green } else { Write-Host "FAIL servo_server    :9001（见 $Logs\servo_server.err.log）" -ForegroundColor Red }
-if ($okGrpc)  { Write-Host "OK  head_grpc_server:2543" -ForegroundColor Green } else { Write-Host "FAIL head_grpc_server:2543（见 $Logs\head_grpc_server.err.log）" -ForegroundColor Red }
 
 # 7) 保存 PID 供 stop 脚本使用
 $pids = [ordered]@{ save_server = $saveId; servo_server = $servoId }
-if ($grpcId) { $pids.head_grpc_server = $grpcId }
 $pids | ConvertTo-Json | Set-Content (Join-Path $Runtime "pids.json") -Encoding UTF8
 
 # 8) 打开浏览器
@@ -215,4 +213,5 @@ if (-not $NoBrowser) {
     Write-Step "已在浏览器打开: $url"
 }
 Write-Host ""
-Write-Host "全部完成。停止服务请运行 stop_windows.bat；日志在 windows\runtime\logs。" -ForegroundColor Yellow
+Write-Host "全部完成。连接好机器人头后，在调试器里选择机器人头即可启动硬件（gRPC 2543）。" -ForegroundColor Yellow
+Write-Host "停止服务请运行 stop_windows.bat；日志在 windows\runtime\logs。" -ForegroundColor Yellow

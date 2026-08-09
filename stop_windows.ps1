@@ -1,4 +1,4 @@
-# stop_windows.ps1 — 停止 windows 包启动的所有服务
+﻿# stop_windows.ps1 — 停止 windows 包启动的所有服务
 param([switch]$Quiet)
 $ErrorActionPreference = "SilentlyContinue"
 

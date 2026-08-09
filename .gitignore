@@ -6,5 +6,6 @@ runtime/pids.json
 runtime/serial.json
 runtime/python_path.txt
 runtime/.selected_head.json
+runtime/patches_backup/
 __pycache__/
 win_tools/__pycache__/
