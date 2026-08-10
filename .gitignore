@@ -5,6 +5,6 @@ runtime/configs/
 runtime/pids.json
 runtime/serial.json
 runtime/python_path.txt
-runtime/patches_backup/
+runtime/.selected_head.json
 __pycache__/
 win_tools/__pycache__/

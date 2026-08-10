@@ -21,7 +21,13 @@ if (Test-Path $pidsFile) {
 
 # 兜底：清理残留的 head_grpc_server / servo_server / save_server 进程
 $leftovers = Get-CimInstance Win32_Process |
-    Where-Object { $_.CommandLine -like "*head_grpc_server*" -or $_.CommandLine -like "*servo_server.py*" -or $_.CommandLine -like "*save_server.py*" }
+    Where-Object {
+        $_.CommandLine -like "*head_grpc_server*" -or
+        $_.CommandLine -like "*servo_server.py*" -or
+        $_.CommandLine -like "*launch_save_server*" -or
+        $_.CommandLine -like "*launch_config_server*" -or
+        $_.CommandLine -like "*save_server.py*"
+    }
 foreach ($p in $leftovers) {
     if ($p.ProcessId -gt 0) {
         Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue

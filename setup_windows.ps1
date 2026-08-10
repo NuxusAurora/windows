@@ -2,35 +2,52 @@ param([switch]$SkipOptional)
 $ErrorActionPreference = "Stop"
 
 $Root = $PSScriptRoot
-$ExpDeb = Join-Path (Split-Path $Root -Parent) "exp_deb"
 $Runtime = Join-Path $Root "runtime"
 
 function Write-Step([string]$Msg) { Write-Host "==> $Msg" -ForegroundColor Cyan }
 
+# 兄弟项目目录：新布局 core/motion/exp，旧布局回退 droidcore-temp/droidmotion/exp_deb
+function Resolve-Sibling([string[]]$Names) {
+    foreach ($name in $Names) {
+        $candidate = Join-Path (Split-Path $Root -Parent) $name
+        if (Test-Path $candidate) { return $candidate }
+    }
+    return Join-Path (Split-Path $Root -Parent) $Names[0]
+}
+
+$ExpDeb = Resolve-Sibling @("exp", "exp_deb")
+$Motion = Resolve-Sibling @("motion", "droidmotion")
+$Core = Resolve-Sibling @("core", "droidcore-temp")
+
 if (-not (Test-Path (Join-Path $ExpDeb "expression_debugger\save_server.py"))) {
-    Write-Host "找不到 exp_deb: $ExpDeb" -ForegroundColor Red
-    Write-Host "请把 windows 包放在 exp 目录下、与 exp_deb 同级。" -ForegroundColor Yellow
+    Write-Host "找不到 exp 项目: $ExpDeb" -ForegroundColor Red
+    Write-Host "请把 windows 包放在 core / motion / exp 的同级目录下。" -ForegroundColor Yellow
     exit 1
 }
 
-# 0) 自动应用 exp_deb 配套补丁（原文件首次备份到 runtime\patches_backup）
-$patchesDir = Join-Path $Root "patches\expression_debugger"
-$backupDir = Join-Path $Runtime "patches_backup"
-if (Test-Path (Join-Path $patchesDir "save_server.py")) {
-    Write-Step "应用配套补丁到 exp_deb（原文件备份到 runtime\patches_backup）"
-    foreach ($name in @("save_server.py", "config_server.py")) {
-        $target = Join-Path $ExpDeb "expression_debugger\$name"
-        $backup = Join-Path $backupDir "$name.orig"
-        if ((Test-Path $target) -and -not (Test-Path $backup)) {
-            New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
-            Copy-Item $target $backup
-            Write-Host "已备份原文件: $name -> runtime\patches_backup\$name.orig"
-        }
-        Copy-Item (Join-Path $patchesDir $name) $target -Force
-        Write-Host "已应用补丁: expression_debugger\$name"
+# 0) 自检：启动器存在 + 三个项目目录可读（本包绝不写入 core/motion/exp）
+foreach ($launcher in @("launchers\launch_save_server.py", "launchers\launch_config_server.py")) {
+    if (-not (Test-Path (Join-Path $Root $launcher))) {
+        Write-Host "缺少启动器: $launcher" -ForegroundColor Red
+        exit 1
     }
+}
+Write-Step "项目目录：exp=$ExpDeb"
+if (Test-Path (Join-Path $ExpDeb "servo_tuning\head-sdk-face\head-server\src\head_grpc_server.py")) {
+    Write-Host "  ✓ head_grpc_server.py 存在"
 } else {
-    Write-Host "未找到 patches\expression_debugger，跳过补丁应用。" -ForegroundColor Yellow
+    Write-Host "  ✗ 找不到 head_grpc_server.py，舵机 gRPC 无法启动" -ForegroundColor Red
+    exit 1
+}
+if (Test-Path (Join-Path $Motion "src")) {
+    Write-Host "  ✓ motion=$Motion（自然状态运动源）"
+} else {
+    Write-Host "  ! 未找到 motion 项目，自然状态将被禁用（其余功能不受影响）" -ForegroundColor Yellow
+}
+if (Test-Path (Join-Path $Core "src")) {
+    Write-Host "  ✓ core=$Core（人脸/注视跟踪）"
+} else {
+    Write-Host "  ! 未找到 core 项目，人脸/注视跟踪将被禁用（其余功能不受影响）" -ForegroundColor Yellow
 }
 
 # 1) 项目要求 conda 环境 face_servo（Python 3.10），优先使用/创建它
@@ -130,7 +147,7 @@ if (-not (Test-Path (Join-Path $sdkDir "setup.py"))) {
     exit 1
 }
 
-Write-Step "安装 exp_deb 运行依赖（含 Head SDK）"
+Write-Step "安装 exp 运行依赖（含 Head SDK）"
 & $envPy -m pip install "$wheel" "$sdkDir" `
     "pyserial==3.5" `
     "websockets==15.0.1" `

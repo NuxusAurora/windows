@@ -26,7 +26,19 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]          # windows/
 RUNTIME_DIR = PACKAGE_ROOT / "runtime"
 CONFIG_OUT_DIR = RUNTIME_DIR / "configs"
-EXP_DEB_ROOT = PACKAGE_ROOT.parent / "exp_deb"
+
+
+def _resolve_sibling(*names: str) -> Path:
+    """按新布局名字优先找兄弟项目目录，找不到回退旧名字。"""
+    for name in names:
+        candidate = PACKAGE_ROOT.parent / name
+        if candidate.is_dir():
+            return candidate
+    return PACKAGE_ROOT.parent / names[0]
+
+
+# 新布局：windows 与 core/motion/exp 同级；旧布局回退 exp_deb。
+EXP_DEB_ROOT = _resolve_sibling("exp", "exp_deb")
 HEAD_CONFIG_DIR = EXP_DEB_ROOT / "servo_tuning" / "head-sdk-face" / "head-server" / "src"
 
 MIC_VIDS = {0x1A86}  # CH340/CH341（J7034G4 麦克风阵列常用）

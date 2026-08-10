@@ -1,4 +1,8 @@
-# start_windows.ps1 — Windows 一键启动 exp_deb 调试平台
+# start_windows.ps1 — Windows 一键启动 exp 调试平台
+#
+# 布局要求：本包（windows/）与 core、motion、exp 同级（旧布局回退
+# droidcore-temp / droidmotion / exp_deb）。本包只读这三个项目，
+# 绝不修改它们的内容；所有运行时产物都落在 windows\runtime\。
 #
 # 可选参数：
 #   -HeadPort COM5   指定机器人头 COM 口（不指定则自动检测）
@@ -16,12 +20,24 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = $PSScriptRoot
-$ExpDeb = Join-Path (Split-Path $Root -Parent) "exp_deb"
 $Runtime = Join-Path $Root "runtime"
 $Logs = Join-Path $Runtime "logs"
 $Configs = Join-Path $Runtime "configs"
 
 function Write-Step([string]$Msg) { Write-Host "==> $Msg" -ForegroundColor Cyan }
+function Resolve-Sibling([string[]]$Names) {
+    foreach ($name in $Names) {
+        $candidate = Join-Path (Split-Path $Root -Parent) $name
+        if (Test-Path $candidate) { return $candidate }
+    }
+    return Join-Path (Split-Path $Root -Parent) $Names[0]
+}
+
+# 兄弟项目目录：新布局 core/motion/exp，旧布局回退
+$ExpDeb = Resolve-Sibling @("exp", "exp_deb")
+$Motion = Resolve-Sibling @("motion", "droidmotion")
+$Core = Resolve-Sibling @("core", "droidcore-temp")
+
 function Test-PortOpen([int]$Port) {
     try {
         $client = New-Object System.Net.Sockets.TcpClient
@@ -41,8 +57,8 @@ if (-not $envPy -or -not (Test-Path $envPy)) {
     exit 1
 }
 if (-not (Test-Path (Join-Path $ExpDeb "expression_debugger\save_server.py"))) {
-    Write-Host "找不到 exp_deb 目录: $ExpDeb" -ForegroundColor Red
-    Write-Host "请把 windows 包放在 exp 目录下、与 exp_deb 同级。" -ForegroundColor Yellow
+    Write-Host "找不到 exp 目录: $ExpDeb" -ForegroundColor Red
+    Write-Host "请把 windows 包放在 core / motion / exp 的同级目录下。" -ForegroundColor Yellow
     exit 1
 }
 New-Item -ItemType Directory -Force -Path $Logs, $Configs | Out-Null
@@ -71,7 +87,10 @@ if (Test-Path $serialFile) {
 
 # 3) 选择机器人头配置
 $headConfigName = "servoConfig_25DV3_G02.yaml"
-$selectedFile = Join-Path $ExpDeb "expression_debugger\.selected_head.json"
+$selectedFile = Join-Path $Runtime ".selected_head.json"
+if (-not (Test-Path $selectedFile)) {
+    $selectedFile = Join-Path $ExpDeb "expression_debugger\.selected_head.json"
+}
 if (Test-Path $selectedFile) {
     try {
         $sel = Get-Content $selectedFile -Raw | ConvertFrom-Json
@@ -112,7 +131,7 @@ if ((Test-PortOpen 9002) -or (Test-PortOpen 9001) -or (Test-PortOpen 2543)) {
     & (Join-Path $Root "stop_windows.ps1")
 }
 
-# 5) 启动三个服务
+# 5) 启动三个服务（save_server 走 windows 包启动器，exp 代码零修改）
 function Start-ExpService([string]$Name, [string]$PyFile, [string]$WorkDir, [string[]]$ArgList) {
     $outLog = Join-Path $Logs "$Name.out.log"
     $errLog = Join-Path $Logs "$Name.err.log"
@@ -122,17 +141,41 @@ function Start-ExpService([string]$Name, [string]$PyFile, [string]$WorkDir, [str
     return $proc.Id
 }
 
-$savePy = Join-Path $ExpDeb "expression_debugger\save_server.py"
+# 中文日志统一 UTF-8，避免 Windows 控制台编码乱码
+$env:PYTHONIOENCODING = "utf-8"
+$env:PYTHONUTF8 = "1"
+
+# save_server：launcher 原样加载 exp/expression_debugger/save_server.py，
+# 仅在内存里替换 Windows 专属行为（局域网 IP、gRPC 启停、COM 配置优先）。
+$saveLauncher = Join-Path $Root "launchers\launch_save_server.py"
+$saveId = Start-ExpService "save_server" $saveLauncher $Root @("`"$saveLauncher`"")
+
+# servo_server：直接跑 exp 的脚本。exp 内部按旧目录名硬编码 import 路径，
+# 新布局（core/motion）下用 PYTHONPATH 注入 motion/src + core/src 桥接。
 $servoPy = Join-Path $ExpDeb "servo_tuning\servo_server.py"
+$servoWorkDir = Join-Path $ExpDeb "servo_tuning"
+$envBackupPath = $env:PYTHONPATH
+$pythonPathParts = @()
+foreach ($proj in @($Motion, $Core)) {
+    $projSrc = Join-Path $proj "src"
+    if (Test-Path $projSrc) { $pythonPathParts += $projSrc }
+}
+if ($pythonPathParts.Count -gt 0) {
+    if ($envBackupPath) {
+        $env:PYTHONPATH = ($pythonPathParts -join ";") + ";" + $envBackupPath
+    } else {
+        $env:PYTHONPATH = $pythonPathParts -join ";"
+    }
+}
+$envBackupSound = $env:SOUND_TRACKING_PORT
+if ($micPortEnv) { $env:SOUND_TRACKING_PORT = $micPortEnv }
+$servoId = Start-ExpService "servo_server" $servoPy $servoWorkDir @("`"$servoPy`"", "--port", "9001")
+$env:SOUND_TRACKING_PORT = $envBackupSound
+$env:PYTHONPATH = $envBackupPath
+
+# gRPC 硬件服务：直接用转换过 COM 口的配置启动 head_grpc_server.py
 $grpcSrc = Join-Path $ExpDeb "servo_tuning\head-sdk-face\head-server\src"
 $grpcPy = Join-Path $grpcSrc "head_grpc_server.py"
-
-$saveId = Start-ExpService "save_server" $savePy $ExpDeb @("`"$savePy`"")
-
-$envBackup = $env:SOUND_TRACKING_PORT
-if ($micPortEnv) { $env:SOUND_TRACKING_PORT = $micPortEnv }
-$servoId = Start-ExpService "servo_server" $servoPy (Join-Path $ExpDeb "servo_tuning") @("`"$servoPy`"", "--port", "9001")
-$env:SOUND_TRACKING_PORT = $envBackup
 
 $grpcId = $null
 if (-not (Test-PortOpen 2543)) {
