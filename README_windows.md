@@ -58,7 +58,9 @@ v0.1 会把补丁文件覆盖到 exp 的 `save_server.py` / `config_server.py`�
    - 自动检测 COM 口 → 把 `servoConfig_25DV3_*.yaml` 的 `/dev/ttyACM*` 转成 `COMx`
      写入 `runtime/configs/`（**不修改 exp 原始文件**）；
    - 依次启动 `save_server`（:9002，走启动器）、`servo_server`（:9001，
-     经 PYTHONPATH 桥接 motion/core）、`head_grpc_server`（:2543）；
+     经 PYTHONPATH 桥接 motion/core）；`head_grpc_server`（:2543）不在脚本里
+     启动——连好机器人头后，在调试器页面选择机器人头，由网页端按需启动
+     （launcher 提供 Windows 下的 gRPC 启停适配）；
    - 自动打开 `http://localhost:9002/expression_debugger/expression_debugger_v2.html`。
 
 4. **停止**：双击 `stop_windows.bat`。
@@ -73,8 +75,9 @@ start_windows.bat -SkipSerial     :: 跳过串口检测，沿用已有配置
 
 - `-HeadPort`：机器人头 COM 口（两个 CH340 设备无法自动区分时用这个手动指定）；
 - `-MicPort`：麦克风阵列 COM 口（不指定时音源追踪自动查找）；
-- `-Head`：机器人头型号 `ula` / `g01` / `g02`（默认读取上次选择
-  `runtime\.selected_head.json`，再默认 G02）。
+- `-Head`：仅影响启动时的提示信息（默认读取上次选择
+  `runtime\.selected_head.json`）；实际选头在调试器网页里进行，结果同样写入
+  `runtime\.selected_head.json`。
 
 ## 已知边界（与 Ubuntu 版本行为一致或不可避免）
 
@@ -101,10 +104,11 @@ start_windows.bat -SkipSerial     :: 跳过串口检测，沿用已有配置
 
 - **“未找到项目 Python”**：先运行 `setup_windows.bat`（需要 conda 且能访问网络
   以创建 face_servo）。
-- **启动后硬件没动**：看 `runtime/logs/head_grpc_server.err.log`，确认串口号是否
-  正确（`runtime/configs/` 里的 yaml 顶部 `port: COMx`），必要时用
+- **启动后硬件没动**：看 `runtime/logs/grpc.err.log`（gRPC 由网页端启动时，
+  launcher 会把输出写到该文件），确认串口号是否正确（`runtime/configs/` 里的
+  yaml 顶部 `port: COMx`），必要时用
   `-HeadPort COMx` 重新生成。
 - **手机连不上**：确认防火墙放行端口、页面左下角显示的 IP 是否为电脑局域网 IP。
-- **端口被占用**：start 脚本检测到 9001/9002/2543 占用会自动先停止旧服务再启动。
+- **端口被占用**：start 脚本检测到 9001/9002/2543 被占用会自动先停止旧服务。
 - **路径诊断**：`python launchers\launch_save_server.py --check` 会打印解析到的
   exp / head_grpc / COM 配置目录是否存在，方便排查目录布局问题。

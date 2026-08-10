@@ -2,7 +2,7 @@
 
 在 Windows 10/11 上原生运行 exp 表情调试平台的配套工具包：一键安装 conda 环境
 （`face_servo` + Python 3.10）、自动检测 COM 串口并转换舵机配置、一键启动/停止
-`save_server` / `servo_server` / `head_grpc_server`。
+`save_server` / `servo_server`（`head_grpc_server` 由调试器网页端选头时按需启动）。
 
 ## 布局要求
 

@@ -24,6 +24,7 @@ WINDOWS_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = WINDOWS_ROOT.parent
 RUNTIME_DIR = WINDOWS_ROOT / "runtime"
 CONFIG_OUT_DIR = RUNTIME_DIR / "configs"
+GRPC_LOG_DIR = RUNTIME_DIR / "logs"
 GRPC_PORT = 2543
 
 
@@ -81,11 +82,14 @@ def _win_start_grpc_service(mod, robot_head: str, robot_number=None):
     if not server_py.is_file():
         return {"success": False, "error": f"找不到 head_grpc_server.py: {server_py}"}
     try:
+        # gRPC 日志落到 windows/runtime/logs/（避免 PIPE 无读者导致输出阻塞）
+        GRPC_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        out_log = (GRPC_LOG_DIR / "grpc.out.log").open("ab")
+        err_log = (GRPC_LOG_DIR / "grpc.err.log").open("ab")
         mod.grpc_process = subprocess.Popen(
             [sys.executable, str(server_py), "--config", str(config_file)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            stdout=out_log,
+            stderr=err_log,
             cwd=str(mod.GRPC_DIR),
         )
         for _ in range(15):

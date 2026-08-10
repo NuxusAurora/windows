@@ -35,6 +35,7 @@ PROJECT_ROOT = WINDOWS_ROOT.parent                       # core/motion/exp/windo
 RUNTIME_DIR = WINDOWS_ROOT / "runtime"
 CONFIG_OUT_DIR = RUNTIME_DIR / "configs"
 RUNTIME_HEAD_STATE = RUNTIME_DIR / ".selected_head.json"
+GRPC_LOG_DIR = RUNTIME_DIR / "logs"
 GRPC_PORT = 2543
 
 
@@ -113,14 +114,16 @@ def _win_grpc_config_in_use() -> str:
 
 
 _GRPC_PROC = None  # Windows：记录由本服务启动的 gRPC 子进程
+_GRPC_LOGS = None  # (out, err) 文件对象：gRPC 进程的日志句柄，保持打开直到停止
 
 
 def _win_stop_grpc(timeout: int = 10):
     """停止正在运行的 gRPC 硬件服务，等待端口 2543 释放。"""
-    global _GRPC_PROC
+    global _GRPC_PROC, _GRPC_LOGS
     pids = _win_grpc_pids()
     if not pids:
         _GRPC_PROC = None
+        _close_grpc_logs()
         return True, "no grpc running"
     try:
         subprocess.run(
@@ -131,6 +134,7 @@ def _win_stop_grpc(timeout: int = 10):
         return False, f"停止 gRPC 失败: {exc}"
     if _GRPC_PROC is not None and _GRPC_PROC.pid in pids:
         _GRPC_PROC = None
+        _close_grpc_logs()
     deadline = time.time() + timeout
     while time.time() < deadline:
         if not _port_open(GRPC_PORT) and not _win_grpc_pids():
@@ -141,19 +145,26 @@ def _win_stop_grpc(timeout: int = 10):
 
 def _win_start_grpc(head_config_path, timeout: int = 30):
     """直接启动 head_grpc_server.py（Windows 没有 bash），等待端口 2543 监听。"""
-    global _GRPC_PROC
+    global _GRPC_PROC, _GRPC_LOGS
     if not HEAD_GRPC_PY.is_file():
         return False, f"找不到 head_grpc_server.py: {HEAD_GRPC_PY}"
     env = dict(os.environ)
     env["NONINTERACTIVE"] = "1"
+    # gRPC 日志落到 windows/runtime/logs/（不再 DEVNULL，排查硬件问题有据可查）
+    GRPC_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    out_log = (GRPC_LOG_DIR / "grpc.out.log").open("ab")
+    err_log = (GRPC_LOG_DIR / "grpc.err.log").open("ab")
     try:
         _GRPC_PROC = subprocess.Popen(
             [sys.executable, str(HEAD_GRPC_PY), "--config", str(head_config_path)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdout=out_log, stderr=err_log,
             env=env, cwd=str(HEAD_SERVER_DIR),
         )
+        _GRPC_LOGS = (out_log, err_log)
     except Exception as exc:
         _GRPC_PROC = None
+        out_log.close()
+        err_log.close()
         return False, f"启动 gRPC 失败: {exc}"
     expected = Path(head_config_path).name
     deadline = time.time() + timeout
@@ -166,6 +177,17 @@ def _win_start_grpc(head_config_path, timeout: int = 30):
     if _port_open(GRPC_PORT):
         return False, "端口2543已运行但配置校验失败"
     return False, "gRPC 启动超时"
+
+
+def _close_grpc_logs() -> None:
+    global _GRPC_LOGS
+    if _GRPC_LOGS:
+        for handle in _GRPC_LOGS:
+            try:
+                handle.close()
+            except OSError:
+                pass
+        _GRPC_LOGS = None
 
 
 def _win_runtime_head_config_name(head_config_path) -> str:
