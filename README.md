@@ -22,7 +22,8 @@
 
 - setup **不覆盖、不打补丁** exp 的任何文件（不再有 v0.1 的「补丁覆盖」步骤）；
 - exp 的 `save_server.py` / `config_server.py` 由 `launchers/` 里的薄启动器**原样加载**，
-  仅在内存中替换 Windows 专属行为（局域网 IP、gRPC 启停、COM 配置优先）；
+  仅在内存中替换 Windows 专属行为（局域网 IP、gRPC 启停、COM 配置优先、
+  ULA 双型号编号校验、网页端清理重启）；
 - 转换过 COM 口的舵机配置、日志、PID、串口信息、选中状态全部落在 `windows/runtime/`；
 - core / motion 仅被**只读**使用：启动 servo_server 时通过 `PYTHONPATH` 注入
   `motion/src` 和 `core/src`，桥接 exp 内部硬编码的旧目录名 import。

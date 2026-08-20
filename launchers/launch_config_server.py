@@ -51,16 +51,21 @@ def _port_open(port: int, host: str = "127.0.0.1") -> bool:
 
 
 def _win_start_grpc_service(mod, robot_head: str, robot_number=None):
-    """Windows 版：直接启动 head_grpc_server.py，优先用 COM 转换配置。"""
+    """Windows 版：直接启动 head_grpc_server.py，优先用 COM 转换配置。
+
+    与 exp 的 config_server 保持同一套规则（ULA 双型号适配，2026-08-13 起）：
+    所有型号（含 ULa）都必须带编号，映射文件名为 ULA_{n}.yaml / G01_{n}.yaml / G02_{n}.yaml。
+    """
     if robot_head not in ["ULa", "G01", "G02"]:
         return {"success": False, "error": "无效的机器人头型号"}
 
+    if not robot_number:
+        return {"success": False, "error": f"{robot_head}需要指定编号"}
+
     if robot_head == "ULa":
         config_file = mod.GRPC_DIR / "servoConfig_25DV3_Ula.yaml"
-        mapping_file = mod.MAPPING_DIR / "ULA_new.yaml"
+        mapping_file = mod.MAPPING_DIR / f"ULA_{robot_number}.yaml"
     else:
-        if not robot_number:
-            return {"success": False, "error": f"{robot_head}需要指定编号"}
         config_file = mod.GRPC_DIR / f"servoConfig_25DV3_{robot_head}.yaml"
         mapping_file = mod.MAPPING_DIR / f"{robot_head}_{robot_number}.yaml"
 

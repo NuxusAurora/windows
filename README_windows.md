@@ -77,7 +77,8 @@ start_windows.bat -SkipSerial     :: 跳过串口检测，沿用已有配置
 - `-MicPort`：麦克风阵列 COM 口（不指定时音源追踪自动查找）；
 - `-Head`：仅影响启动时的提示信息（默认读取上次选择
   `runtime\.selected_head.json`）；实际选头在调试器网页里进行，结果同样写入
-  `runtime\.selected_head.json`。
+  `runtime\.selected_head.json`。ULA 需按编号选择 1 / 10 号型号（与 exp 的
+  ULA 双型号适配一致），启动器已同步该校验。
 
 ## 已知边界（与 Ubuntu 版本行为一致或不可避免）
 
@@ -110,5 +111,9 @@ start_windows.bat -SkipSerial     :: 跳过串口检测，沿用已有配置
   `-HeadPort COMx` 重新生成。
 - **手机连不上**：确认防火墙放行端口、页面左下角显示的 IP 是否为电脑局域网 IP。
 - **端口被占用**：start 脚本检测到 9001/9002/2543 被占用会自动先停止旧服务。
+- **网页端「重新选择机器人头」**：exp 在 Linux 用 bash 清理并重启全部服务；
+  Windows 下 launcher 已拦截该请求，改为调用本包的
+  `stop_windows.ps1` + `start_windows.ps1` 完成同样任务（会杀掉当前服务后重启，
+  页面需稍候重新打开）。
 - **路径诊断**：`python launchers\launch_save_server.py --check` 会打印解析到的
   exp / head_grpc / COM 配置目录是否存在，方便排查目录布局问题。

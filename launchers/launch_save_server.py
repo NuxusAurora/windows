@@ -9,9 +9,10 @@
      - _get_local_ip            UDP socket 探测局域网 IP（Windows 没有 ip 命令）
      - _grpc_pids/停止/启动     PowerShell 查进程、taskkill 停止、直接起
                                head_grpc_server.py（不再依赖 bash/pgrep//proc）
-     - _runtime_head_config_name COM 转换配置不再生成 .local 副本，直接同名
-     - _head_profile            优先使用 windows/runtime/configs 转换过 COM 口的配置
-     - HEAD_STATE_FILE          选中状态写到 windows/runtime/（不写 exp）
+- _runtime_head_config_name  COM 转换配置不再生成 .local 副本，直接同名
+     - _head_profile              优先使用 windows/runtime/configs 转换过 COM 口的配置
+     - HEAD_STATE_FILE            选中状态写到 windows/runtime/（不写 exp）
+     - /api/refresh               无 bash 时改用 windows 包自身的启停脚本完成清理重启
 
 用法：
   python launch_save_server.py          启动 save_server（端口 9002）
@@ -195,6 +196,49 @@ def _win_runtime_head_config_name(head_config_path) -> str:
     return Path(head_config_path).name
 
 
+# /api/refresh：exp 在 Linux 用 bash 执行 clean.sh + start.sh 清理并重启全部服务；
+# Windows 没有 bash，改由本包自己的 stop_windows.ps1 + start_windows.ps1 完成同样任务。
+_REFRESH_STOP = WINDOWS_ROOT / "stop_windows.ps1"
+_REFRESH_START = WINDOWS_ROOT / "start_windows.ps1"
+
+
+def _win_handle_refresh(handler) -> object:
+    """Windows 版 /api/refresh：先停掉旧服务，再拉起全部服务（异步，本进程会被杀掉）。"""
+    if not _REFRESH_STOP.is_file() or not _REFRESH_START.is_file():
+        return handler._send(500, {"detail": "缺少 stop_windows.ps1 / start_windows.ps1"})
+    # 延迟 1 秒让当前响应先返回，再让脚本接管：stop 会杀掉本进程，start 重新拉起全部服务。
+    ps_cmd = (
+        "Start-Sleep -Seconds 1; "
+        f"& '{_REFRESH_STOP.as_posix()}'; "
+        "Start-Sleep -Seconds 1; "
+        f"& '{_REFRESH_START.as_posix()}'"
+    )
+    try:
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        )
+    except Exception as exc:
+        return handler._send(500, {"detail": f"Windows 重启调度失败: {exc}"})
+    return handler._send(200, {"success": True, "message": "正在清理并重启全部服务，请稍候重新打开页面"})
+
+
+def _make_win_do_post(orig_do_post):
+    """包一层 do_POST：拦截 /api/refresh 走 Windows 重启，其余原样交给 exp 实现。"""
+    import urllib.parse as _up
+
+    def _win_do_post(self):
+        if _up.urlsplit(self.path).path == "/api/refresh":
+            return _win_handle_refresh(self)
+        return orig_do_post(self)
+
+    return _win_do_post
+
+
 def _patch_windows(mod) -> None:
     """把 exp 的 save_server 模块替换为 Windows 行为（不改任何文件）。"""
     mod._get_local_ip = _win_get_local_ip
@@ -216,6 +260,7 @@ def _patch_windows(mod) -> None:
         return label, config_path
 
     mod._head_profile = _win_head_profile
+    mod.SaveHandler.do_POST = _make_win_do_post(mod.SaveHandler.do_POST)
     print(f"[windows] save_server 已启用 Windows 适配（COM 配置目录: {CONFIG_OUT_DIR}）")
 
 
